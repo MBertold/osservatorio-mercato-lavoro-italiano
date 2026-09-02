@@ -27,11 +27,23 @@ def warehouse_connection_string() -> str:
 
 
 # Dataflow ISTAT di interesse per il mercato del lavoro.
-# IMPORTANTE: gli id sotto vanno confermati/completati eseguendo una volta
-# `python -m src.discover "occupazione" "disoccupazione" "inattività" "neet"`
-# che interroga il catalogo SDMX live e stampa i match esatti (flow id + nome).
-# L'unico voce già verificata (fonte: documentazione pubblica del pacchetto istatapi)
-# è il tasso di disoccupazione; le altre sono segnaposto da confermare.
+#
+# IMPORTANTE su "verificato": True significa "confermato interrogando dal vivo
+# il catalogo SDMX ISTAT" (con `python -m src.discover ...`, eseguito da una rete
+# che riesce a raggiungere esploradati.istat.it — questo ambiente di sviluppo
+# non ci riesce, vedi README). extract.py salta ogni indicatore con
+# verificato=False, quindi finché non lo confermi manualmente non verrà scaricato.
+#
+# - tasso_disoccupazione: verificato dal vivo (fonte: documentazione pubblica
+#   del pacchetto istatapi, poi confermabile via discover.py).
+# - tasso_occupazione, tasso_inattivita: flow_ref *candidati*, trovati per
+#   ricerca in documentazione di terzi (datiistat.it/alldataflows), MAI
+#   verificati via API in questo ambiente. Probabile che siano corretti (stessa
+#   numerazione della famiglia di dataflow del mercato del lavoro), ma vanno
+#   confermati con discover.py prima di fidarsene: se corrispondono, cambia
+#   semplicemente `verificato` a True.
+# - neet: nessun candidato trovato nemmeno in documentazione di terzi — va
+#   cercato da zero con discover.py.
 DATAFLOWS = {
     "tasso_disoccupazione": {
         "flow_ref": "151_914",
@@ -40,13 +52,13 @@ DATAFLOWS = {
         "verificato": True,
     },
     "tasso_occupazione": {
-        "flow_ref": "TODO_DA_CONFERMARE",
-        "structure_id": "DCCV_TAXOCCU",
+        "flow_ref": "150_915",  # candidato non verificato via API, vedi nota sopra
+        "structure_id": "DCCV_TAXOCCU1",
         "descrizione": "Tasso di occupazione",
         "verificato": False,
     },
     "tasso_inattivita": {
-        "flow_ref": "TODO_DA_CONFERMARE",
+        "flow_ref": "152_913",  # candidato non verificato via API, vedi nota sopra
         "structure_id": "DCCV_TASSAT",
         "descrizione": "Tasso di inattività",
         "verificato": False,

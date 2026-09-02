@@ -74,10 +74,17 @@ le porte di default):
 
 ## Primo utilizzo: confermare i dataflow ISTAT
 
-Solo `tasso_disoccupazione` è già configurato con un `flow_ref` verificato in
-`src/config.py`. Gli altri (`tasso_occupazione`, `tasso_inattivita`, `neet`) vanno confermati
-una volta, eseguendo (fuori da Airflow, per non consumare la quota di 5 richieste/minuto durante
-lo sviluppo):
+Stato attuale in `src/config.py`:
+
+- `tasso_disoccupazione`: `flow_ref` verificato dal vivo, pronto all'uso.
+- `tasso_occupazione`, `tasso_inattivita`: `flow_ref` **candidati** (trovati in documentazione
+  di terzi, mai verificati contro l'API live), con `verificato: False` — extract.py li salta
+  finché non li confermi.
+- `neet`: nessun candidato trovato, `flow_ref` ancora segnaposto.
+
+Per confermare i candidati e trovare quello mancante, esegui (fuori da Airflow, per non
+consumare la quota di 5 richieste/minuto durante lo sviluppo — serve una rete che riesca a
+raggiungere `esploradati.istat.it`, vedi limiti noti più sotto):
 
 ```bash
 python -m venv .venv && source .venv/bin/activate   # o .venv\Scripts\activate su Windows
@@ -85,7 +92,8 @@ pip install -r requirements-dev.txt
 python -m src.discover occupazione disoccupazione inattività neet
 ```
 
-Copia i `flow_ref` trovati in `src/config.py` (campo `verificato: True`), poi rilancia il DAG.
+Confronta i `flow_ref` che stampa con quelli già in `src/config.py`: se coincidono con i
+candidati, basta mettere `verificato: True`; per NEET copia il `flow_ref` trovato.
 
 ## Eseguire la pipeline
 
