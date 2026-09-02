@@ -9,7 +9,6 @@ RATE_LIMITER_STATE_FILE = Path(
     os.environ.get("ISTAT_RATE_LIMITER_FILE", RAW_DATA_DIR / ".rate_limiter_state.json")
 )
 
-ISTAT_SDMX_BASE_URL = "https://esploradati.istat.it/SDMXWS/rest"
 ISTAT_MAX_REQUESTS_PER_MINUTE = 4  # sotto il limite ISTAT di 5/min: un blocco dura 1-2 giorni
 
 WAREHOUSE_HOST = os.environ.get("WAREHOUSE_HOST", "localhost")
@@ -28,45 +27,22 @@ def warehouse_connection_string() -> str:
 
 # Dataflow ISTAT di interesse per il mercato del lavoro.
 #
-# IMPORTANTE su "verificato": True significa "confermato interrogando dal vivo
-# il catalogo SDMX ISTAT" (con `python -m src.discover ...`, eseguito da una rete
-# che riesce a raggiungere esploradati.istat.it — questo ambiente di sviluppo
-# non ci riesce, vedi README). extract.py salta ogni indicatore con
-# verificato=False, quindi finché non lo confermi manualmente non verrà scaricato.
+# Ogni voce è l'"identificatore" che si passa a `istatapi.discovery.DataSet(...)`:
+# può essere il nome della struttura dati SDMX (es. "DCCV_TAXOCCU") oppure il
+# suo id numerico di catalogo (es. "151_914") — istatapi risolve da solo il
+# resto scaricando il catalogo completo, quindi non serve più conoscere in
+# anticipo il codice numerico. Un identificatore sbagliato fa fallire (in modo
+# esplicito) solo il task di estrazione di quell'indicatore, non l'intero DAG.
 #
-# - tasso_disoccupazione: verificato dal vivo (fonte: documentazione pubblica
-#   del pacchetto istatapi, poi confermabile via discover.py).
-# - tasso_occupazione, tasso_inattivita: flow_ref *candidati*, trovati per
-#   ricerca in documentazione di terzi (datiistat.it/alldataflows), MAI
-#   verificati via API in questo ambiente. Probabile che siano corretti (stessa
-#   numerazione della famiglia di dataflow del mercato del lavoro), ma vanno
-#   confermati con discover.py prima di fidarsene: se corrispondono, cambia
-#   semplicemente `verificato` a True.
-# - neet: nessun candidato trovato nemmeno in documentazione di terzi — va
-#   cercato da zero con discover.py.
+# - tasso_disoccupazione: identificatore noto da fonte pubblica (doc. istatapi).
+# - tasso_occupazione: "DCCV_TAXOCCU", indicato direttamente dall'utente
+#   (provato con l'URL .../SDMXWS/rest/data/DCCV_TAXOCCU/).
+# - tasso_inattivita: candidato non confermato (trovato per ricerca in
+#   documentazione di terzi) — verificalo con `python -m src.discover inattività`.
+# - neet: nessun candidato trovato — vedi `python -m src.discover neet`.
 DATAFLOWS = {
-    "tasso_disoccupazione": {
-        "flow_ref": "151_914",
-        "structure_id": "DCCV_TAXDISOCCU1",
-        "descrizione": "Tasso di disoccupazione",
-        "verificato": True,
-    },
-    "tasso_occupazione": {
-        "flow_ref": "150_915",  # candidato non verificato via API, vedi nota sopra
-        "structure_id": "DCCV_TAXOCCU1",
-        "descrizione": "Tasso di occupazione",
-        "verificato": False,
-    },
-    "tasso_inattivita": {
-        "flow_ref": "152_913",  # candidato non verificato via API, vedi nota sopra
-        "structure_id": "DCCV_TASSAT",
-        "descrizione": "Tasso di inattività",
-        "verificato": False,
-    },
-    "neet": {
-        "flow_ref": "TODO_DA_CONFERMARE",
-        "structure_id": "DCCV_NEET",
-        "descrizione": "Giovani NEET (15-29 anni)",
-        "verificato": False,
-    },
+    "tasso_disoccupazione": "DCCV_TAXDISOCCU1",
+    "tasso_occupazione": "DCCV_TAXOCCU",
+    "tasso_inattivita": "DCCV_TASSAT",  # non confermato, vedi nota sopra
+    "neet": None,  # ancora da trovare
 }

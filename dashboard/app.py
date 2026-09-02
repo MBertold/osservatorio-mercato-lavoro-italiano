@@ -140,6 +140,6 @@ with tab_neet:
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.info(
-            "Indicatore NEET non ancora presente nel warehouse: conferma il flow_ref in "
-            "`src/config.py` (esegui `python -m src.discover neet`) e rilancia il DAG."
+            "Indicatore NEET non ancora presente nel warehouse: trova il suo identificatore con "
+            "`python -m src.discover neet`, aggiungilo in `src/config.py` e rilancia il DAG."
         )

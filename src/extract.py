@@ -1,34 +1,35 @@
-"""Estrazione dati dai dataflow ISTAT configurati verso data/raw/<indicatore>.csv."""
+"""Estrazione dati dai dataflow ISTAT configurati verso data/raw/<indicatore>.csv,
+tramite `istatapi` (rate limiting e cache applicati da src/istat_client.py)."""
 
 from __future__ import annotations
 
-import io
 import logging
 
-import pandas as pd
-
 from src.config import DATAFLOWS, RAW_DATA_DIR
-from src.istat_client import IstatClient
+from src.istat_client import get_dataflow_catalog
 
 logger = logging.getLogger(__name__)
 
 
-def extract_indicatore(nome: str, use_cache: bool = True) -> "pd.DataFrame | None":
-    cfg = DATAFLOWS[nome]
+def extract_indicatore(nome: str, use_cache: bool = True):
+    identifier = DATAFLOWS.get(nome)
 
-    if not cfg.get("verificato", False):
+    if not identifier:
         logger.warning(
-            "Salto '%s': flow_ref non ancora confermato (%s). "
-            "Esegui `python -m src.discover` per confermarlo in config.py.",
+            "Salto '%s': nessun identificatore configurato in src/config.py. "
+            "Cercalo con `python -m src.discover <parola chiave>`.",
             nome,
-            cfg["flow_ref"],
         )
         return None
 
-    client = IstatClient()
-    logger.info("Estraggo indicatore '%s' (flow_ref=%s)", nome, cfg["flow_ref"])
-    csv_text = client.get_data_csv(cfg["flow_ref"], use_cache=use_cache)
-    df = pd.read_csv(io.StringIO(csv_text))
+    get_dataflow_catalog(use_cache=use_cache)  # scarica/usa cache prima di costruire il DataSet
+
+    from istatapi.discovery import DataSet
+    from istatapi.retrieval import get_data
+
+    logger.info("Estraggo indicatore '%s' (identificatore=%s)", nome, identifier)
+    dataset = DataSet(identifier)
+    df = get_data(dataset)
 
     RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
     out_path = RAW_DATA_DIR / f"{nome}.csv"
@@ -37,7 +38,7 @@ def extract_indicatore(nome: str, use_cache: bool = True) -> "pd.DataFrame | Non
     return df
 
 
-def extract_all() -> dict[str, "pd.DataFrame | None"]:
+def extract_all() -> dict:
     return {nome: extract_indicatore(nome) for nome in DATAFLOWS}
 
 

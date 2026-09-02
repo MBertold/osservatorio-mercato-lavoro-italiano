@@ -25,9 +25,9 @@ def mercato_lavoro_pipeline():
     @task
     def discover_dataflows() -> None:
         """Sanity check di connettività al catalogo SDMX (scarica/usa cache)."""
-        from src.istat_client import IstatClient
+        from src.istat_client import get_dataflow_catalog
 
-        IstatClient().get_dataflows()
+        get_dataflow_catalog()
 
     @task
     def extract_indicatore(nome: str) -> str:

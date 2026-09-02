@@ -1,29 +1,34 @@
-"""Client per le API SDMX di ISTAT.
+"""Wrapper attorno a `istatapi` che aggiunge le due protezioni indispensabili
+che la libreria non ha di serie:
 
-ISTAT impone un limite di 5 richieste/minuto per IP; superarlo comporta un
-blocco di 1-2 giorni. Questo client applica tre protezioni:
+1. Rate limiting cross-processo (ISTAT impone 5 richieste/minuto per IP, con
+   blocco di 1-2 giorni se superato). Una singola `istatapi.discovery.DataSet(...)`
+   genera già 3 richieste HTTP interne (catalogo completo, struttura del
+   dataflow, valori disponibili); qui intercettiamo *ogni* richiesta HTTP che
+   istatapi fa, tramite un monkeypatch di `ISTAT._request`, e la seriamo
+   dietro un limitatore persistito su file (condiviso anche tra i task
+   Airflow, che possono girare in processi separati).
+2. Cache su disco del catalogo completo dei dataflow: istatapi lo riscarica
+   per intero ad ogni `DataSet(...)`, il che è inutile e spreca la quota di
+   richieste. Qui lo scarichiamo una volta sola e lo teniamo in cache.
 
-1. Rate limiting cross-processo tramite un file di stato con lock (necessario
-   perché i task Airflow possono girare in processi/worker separati).
-2. Cache su disco delle risposte grezze, per non ri-scaricare mai per errore
-   durante lo sviluppo o al rilancio di un DAG.
-3. Retry con backoff esponenziale su errori 429/5xx.
+Il catalogo che costruiamo qui, a differenza di quello nativo di istatapi,
+include anche il nome in italiano di ogni dataflow (istatapi tiene solo
+l'inglese), per poter cercare con parole chiave italiane in `src/discover.py`.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import time
 from pathlib import Path
 
-import requests
+import pandas as pd
 from filelock import FileLock
 
 from src.config import (
     ISTAT_MAX_REQUESTS_PER_MINUTE,
-    ISTAT_SDMX_BASE_URL,
     RATE_LIMITER_STATE_FILE,
     RAW_DATA_DIR,
 )
@@ -31,12 +36,7 @@ from src.config import (
 logger = logging.getLogger(__name__)
 
 _CACHE_DIR = RAW_DATA_DIR / "cache"
-_MAX_RETRIES = 5
-_BASE_BACKOFF_SECONDS = 5
-
-
-class IstatApiError(RuntimeError):
-    """Errore non recuperabile dall'API ISTAT (dopo i retry disponibili)."""
+_CATALOG_CACHE_FILE = _CACHE_DIR / "dataflow_catalog.csv"
 
 
 class RateLimiter:
@@ -77,104 +77,89 @@ class RateLimiter:
         self.state_file.write_text(json.dumps(timestamps))
 
 
-class IstatClient:
-    def __init__(
-        self,
-        base_url: str = ISTAT_SDMX_BASE_URL,
-        cache_dir: Path = _CACHE_DIR,
-        max_requests_per_minute: int = ISTAT_MAX_REQUESTS_PER_MINUTE,
-    ):
-        self.base_url = base_url.rstrip("/")
-        self.cache_dir = cache_dir
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.rate_limiter = RateLimiter(max_requests_per_minute, RATE_LIMITER_STATE_FILE)
-        self.session = requests.Session()
+rate_limiter = RateLimiter(ISTAT_MAX_REQUESTS_PER_MINUTE, RATE_LIMITER_STATE_FILE)
 
-    def get_dataflows(self, agency_id: str = "IT1", use_cache: bool = True) -> str:
-        """Scarica il catalogo completo dei dataflow (XML SDMX)."""
-        url = f"{self.base_url}/dataflow/{agency_id}"
-        return self._get(url, accept="application/xml", use_cache=use_cache, cache_key=f"dataflow_{agency_id}")
+_patched = False
 
-    def get_data_csv(
-        self,
-        flow_ref: str,
-        key: str = "",
-        params: dict | None = None,
-        use_cache: bool = True,
-    ) -> str:
-        """Scarica i dati di un dataflow in formato SDMX-CSV.
 
-        `key` è la chiave posizionale SDMX (es. "M.IT.15_64.1.1..." a seconda
-        delle dimensioni del dataflow) — vuota per prendere tutta la serie.
-        """
-        url = f"{self.base_url}/data/{flow_ref}/{key}"
-        cache_key = self._cache_key(flow_ref, key, params)
-        return self._get(
-            url,
-            accept="application/vnd.sdmx.data+csv;version=1.0.0",
-            params=params,
-            use_cache=use_cache,
-            cache_key=cache_key,
+def _install_rate_limit_patch() -> None:
+    """Fa passare ogni richiesta HTTP di istatapi dal rate limiter.
+
+    Idempotente: chiamabile più volte (es. da più moduli che importano questo
+    file) senza applicare il patch più di una volta.
+    """
+    global _patched
+    if _patched:
+        return
+
+    from istatapi.base import ISTAT
+
+    original_request = ISTAT._request
+
+    def rate_limited_request(self, path, **kwargs):
+        rate_limiter.wait_for_slot()
+        return original_request(self, path, **kwargs)
+
+    ISTAT._request = rate_limited_request
+    _patched = True
+
+
+def _parse_catalog_with_italian_names(response) -> list[dict]:
+    """Come `istatapi.discovery.parse_dataflows`, ma tiene anche il nome
+    italiano di ogni dataflow (istatapi tiene solo quello inglese)."""
+    from istatapi.utils import make_tree, strip_ns
+
+    tree = make_tree(response)
+    strip_ns(tree)
+    root = tree.root
+
+    dataflows = []
+    for dataflow in root.iter("Dataflow"):
+        structure_refs = [ref.get("id") for ref in dataflow.iter("Ref")]
+        names = {name.get("{http://www.w3.org/XML/1998/namespace}lang"): name.text for name in dataflow.findall("Name")}
+
+        dataflows.append(
+            {
+                "df_id": dataflow.get("id"),
+                "version": dataflow.get("version"),
+                "df_description": names.get("en", ""),
+                "df_description_it": names.get("it", ""),
+                "df_structure_id": structure_refs[0] if structure_refs else None,
+            }
         )
 
-    def _cache_key(self, flow_ref: str, key: str, params: dict | None) -> str:
-        raw = f"{flow_ref}|{key}|{json.dumps(params or {}, sort_keys=True)}"
-        digest = hashlib.sha256(raw.encode()).hexdigest()[:16]
-        safe_flow = flow_ref.replace("/", "_")
-        return f"{safe_flow}_{digest}"
+    return dataflows
 
-    def _get(
-        self,
-        url: str,
-        accept: str,
-        params: dict | None = None,
-        use_cache: bool = True,
-        cache_key: str | None = None,
-    ) -> str:
-        cache_file = self.cache_dir / f"{cache_key}.raw" if cache_key else None
 
-        if use_cache and cache_file and cache_file.exists():
-            logger.debug("Cache hit: %s", cache_file.name)
-            return cache_file.read_text(encoding="utf-8")
+def _fetch_catalog_live() -> pd.DataFrame:
+    from istatapi.base import ISTAT
 
-        response_text = self._request_with_retry(url, accept, params)
+    _install_rate_limit_patch()
+    client = ISTAT()
+    response = client._request("dataflow/IT1")
+    return pd.DataFrame(_parse_catalog_with_italian_names(response))
 
-        if cache_file:
-            cache_file.write_text(response_text, encoding="utf-8")
 
-        return response_text
+def get_dataflow_catalog(use_cache: bool = True) -> pd.DataFrame:
+    """Catalogo completo dei dataflow ISTAT, con cache su disco.
 
-    def _request_with_retry(self, url: str, accept: str, params: dict | None) -> str:
-        last_error: Exception | None = None
+    Interroga l'API una sola volta (invece che ad ogni `DataSet(...)` come
+    farebbe istatapi di default) e installa un monkeypatch su
+    `istatapi.discovery.all_available` così che ogni `DataSet(...)`
+    costruito dopo questa chiamata riusi questo stesso catalogo in cache.
+    """
+    if use_cache and _CATALOG_CACHE_FILE.exists():
+        catalog = pd.read_csv(_CATALOG_CACHE_FILE)
+    else:
+        catalog = _fetch_catalog_live()
+        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        catalog.to_csv(_CATALOG_CACHE_FILE, index=False)
 
-        for attempt in range(1, _MAX_RETRIES + 1):
-            self.rate_limiter.wait_for_slot()
+    import istatapi.discovery as _discovery
 
-            try:
-                resp = self.session.get(
-                    url, params=params, headers={"Accept": accept}, timeout=30
-                )
-            except requests.RequestException as exc:
-                last_error = exc
-                logger.warning("Errore di rete (tentativo %d/%d): %s", attempt, _MAX_RETRIES, exc)
-            else:
-                if resp.status_code == 200:
-                    return resp.text
-                if resp.status_code == 429:
-                    logger.warning(
-                        "HTTP 429 da ISTAT (tentativo %d/%d): rallento ulteriormente", attempt, _MAX_RETRIES
-                    )
-                elif resp.status_code >= 500:
-                    logger.warning(
-                        "Errore server ISTAT %d (tentativo %d/%d)", resp.status_code, attempt, _MAX_RETRIES
-                    )
-                else:
-                    raise IstatApiError(
-                        f"Richiesta fallita ({resp.status_code}) per {url}: {resp.text[:300]}"
-                    )
-                last_error = IstatApiError(f"HTTP {resp.status_code} per {url}")
+    _discovery.all_available = lambda dataframe=True: catalog if dataframe else catalog.to_dict(orient="records")
 
-            backoff = _BASE_BACKOFF_SECONDS * (2 ** (attempt - 1))
-            time.sleep(backoff)
+    return catalog
 
-        raise IstatApiError(f"Impossibile completare la richiesta a {url} dopo {_MAX_RETRIES} tentativi") from last_error
+
+_install_rate_limit_patch()
