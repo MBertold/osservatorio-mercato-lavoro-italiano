@@ -1,9 +1,7 @@
 """Client minimale per le API SDMX di Eurostat.
 
-Eurostat non impone un limite di richieste rigido come ISTAT (niente rischio
-di blocco IP per giorni), quindi qui non serve il rate limiter cross-processo
-di `src/istat_client.py` — resta comunque una cache su disco, per non
-riscaricare inutilmente gli stessi dati ad ogni run.
+Eurostat non impone un limite di richieste rigido: qui basta una cache su
+disco, per non riscaricare inutilmente gli stessi dati ad ogni run.
 """
 
 from __future__ import annotations

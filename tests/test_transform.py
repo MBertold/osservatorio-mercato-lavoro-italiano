@@ -10,19 +10,19 @@ from src.transform import (
 
 
 def test_pick_column_returns_first_match():
-    df = pd.DataFrame({"REF_AREA": [1], "OBS_VALUE": [2]})
-    assert _pick_column(df, ["ITTER107", "REF_AREA"]) == "REF_AREA"
+    df = pd.DataFrame({"geo": [1], "OBS_VALUE": [2]})
+    assert _pick_column(df, ["geo", "REF_AREA"]) == "geo"
 
 
 def test_pick_column_raises_when_required_and_missing():
     df = pd.DataFrame({"FOO": [1]})
     with pytest.raises(KeyError):
-        _pick_column(df, ["ITTER107", "REF_AREA"])
+        _pick_column(df, ["geo", "REF_AREA"])
 
 
 def test_pick_column_returns_none_when_optional_and_missing():
     df = pd.DataFrame({"FOO": [1]})
-    assert _pick_column(df, ["SEXISTAT1"], required=False) is None
+    assert _pick_column(df, ["sex"], required=False) is None
 
 
 def test_parse_anno_extracts_year_from_various_periods():
@@ -38,10 +38,10 @@ def test_parse_anno_returns_none_for_malformed_period():
 def test_normalize_indicator_df_maps_sdmx_columns_to_long_schema():
     raw = pd.DataFrame(
         {
-            "ITTER107": ["IT", "IT"],
-            "Territorio": ["Italia", "Italia"],
-            "TIME_PERIOD": ["2023-Q1", "2023-Q2"],
-            "SEXISTAT1": ["1", "1"],
+            "geo": ["ITC4", "ITC4"],
+            "Territorio": ["Lombardia", "Lombardia"],
+            "TIME_PERIOD": [2022, 2023],
+            "sex": ["T", "T"],
             "OBS_VALUE": ["7.5", "7.8"],
         }
     )
@@ -50,16 +50,16 @@ def test_normalize_indicator_df_maps_sdmx_columns_to_long_schema():
 
     assert list(clean["indicatore"].unique()) == ["tasso_disoccupazione"]
     assert clean["valore"].tolist() == [7.5, 7.8]
-    assert clean["territorio"].tolist() == ["Italia", "Italia"]
-    # ETA1 assente nel csv di esempio: deve ricadere sul default "totale"
+    assert clean["territorio"].tolist() == ["Lombardia", "Lombardia"]
+    # "age" assente nel csv di esempio: deve ricadere sul default "totale"
     assert (clean["classe_eta"] == "totale").all()
 
 
 def test_normalize_indicator_df_coerces_non_numeric_value_to_nan():
     raw = pd.DataFrame(
         {
-            "REF_AREA": ["IT"],
-            "TIME_PERIOD": ["2023"],
+            "geo": ["ITC4"],
+            "TIME_PERIOD": [2023],
             "OBS_VALUE": ["n.d."],
         }
     )

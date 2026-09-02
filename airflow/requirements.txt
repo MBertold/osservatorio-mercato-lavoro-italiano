@@ -3,6 +3,4 @@
 # versione diversa rompe l'ORM interno di Airflow. Il nostro codice in src/
 # usa solo API compatibili con la versione già presente nell'immagine.
 requests==2.32.3
-istatapi==1.0.0
 psycopg2-binary==2.9.10
-filelock==3.16.1

@@ -1,10 +1,8 @@
-# Ambiente di sviluppo locale (fuori dai container): discovery API, test, notebook.
+# Ambiente di sviluppo locale (fuori dai container): estrazione, test, notebook.
 requests==2.32.3
-istatapi==1.0.0
 pandas==2.2.3
 SQLAlchemy==2.0.36
 psycopg2-binary==2.9.10
-filelock==3.16.1
 python-dotenv==1.0.1
 pytest==8.3.3
 jupyter==1.1.1

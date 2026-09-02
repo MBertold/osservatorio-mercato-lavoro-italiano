@@ -1,9 +1,9 @@
 """Trasformazione bronze -> silver -> gold su Postgres.
 
-I dataflow ISTAT in formato SDMX-CSV non hanno sempre gli stessi nomi di
-colonna: qui si usa un piccolo resolver a lista di candidati per restare
-tolleranti a variazioni tra dataflow diversi, loggando le colonne trovate
-al primo utilizzo così eventuali disallineamenti sono facili da individuare.
+I dataflow SDMX (Eurostat) non hanno sempre gli stessi nomi di colonna: qui
+si usa un piccolo resolver a lista di candidati per restare tolleranti a
+variazioni tra dataflow diversi, loggando le colonne trovate al primo
+utilizzo così eventuali disallineamenti sono facili da individuare.
 """
 
 from __future__ import annotations
@@ -14,16 +14,16 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
-from src.config import DATAFLOWS, RAW_DATA_DIR, warehouse_connection_string
+from src.config import INDICATORI, RAW_DATA_DIR, warehouse_connection_string
 
 logger = logging.getLogger(__name__)
 
-TERRITORIO_CANDIDATES = ["ITTER107", "REF_AREA", "TERRITORIO", "geo"]
-TERRITORIO_LABEL_CANDIDATES = ["Territorio", "Territory", "REF_AREA_LABEL"]
-TIME_CANDIDATES = ["TIME_PERIOD", "Time", "TIME"]
-SESSO_CANDIDATES = ["SEXISTAT1", "SESSO", "Sex", "sex"]
-ETA_CANDIDATES = ["ETA1", "CLASSE_DI_ETA", "Age class", "ETA", "age"]
-VALUE_CANDIDATES = ["OBS_VALUE", "Value", "Observation Value"]
+TERRITORIO_CANDIDATES = ["geo"]
+TERRITORIO_LABEL_CANDIDATES = ["Territorio"]
+TIME_CANDIDATES = ["TIME_PERIOD"]
+SESSO_CANDIDATES = ["sex"]
+ETA_CANDIDATES = ["age"]
+VALUE_CANDIDATES = ["OBS_VALUE"]
 
 # Mappatura regione -> macro-area, usata in dashboard per il confronto Nord/Centro/Sud.
 RIPARTIZIONE_PER_REGIONE = {
@@ -63,7 +63,7 @@ def _read_raw(nome: str) -> pd.DataFrame | None:
 
 
 def load_bronze(engine: Engine) -> None:
-    for nome in DATAFLOWS:
+    for nome in INDICATORI:
         df = _read_raw(nome)
         if df is None:
             continue
@@ -98,14 +98,14 @@ def normalize_indicator_df(df: pd.DataFrame, nome: str) -> pd.DataFrame:
 def build_silver(engine: Engine) -> pd.DataFrame:
     frames = []
 
-    for nome in DATAFLOWS:
+    for nome in INDICATORI:
         df = _read_raw(nome)
         if df is None:
             continue
         frames.append(normalize_indicator_df(df, nome))
 
     if not frames:
-        raise RuntimeError("Nessun dato grezzo disponibile: esegui prima l'estrazione (src.extract).")
+        raise RuntimeError("Nessun dato grezzo disponibile: esegui prima l'estrazione (src.eurostat_extract).")
 
     silver = pd.concat(frames, ignore_index=True).dropna(subset=["valore"])
     silver.to_sql("stg_mercato_lavoro", engine, schema="silver", if_exists="replace", index=False)

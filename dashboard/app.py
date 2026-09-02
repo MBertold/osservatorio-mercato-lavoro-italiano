@@ -139,7 +139,4 @@ with tab_neet:
         fig = px.line(neet_df, x="periodo", y="valore", color="territorio", title="NEET nel tempo")
         st.plotly_chart(fig, use_container_width=True)
     else:
-        st.info(
-            "Indicatore NEET non ancora presente nel warehouse: trova il suo identificatore con "
-            "`python -m src.discover neet`, aggiungilo in `src/config.py` e rilancia il DAG."
-        )
+        st.info("Indicatore NEET non ancora presente nel warehouse: esegui prima il DAG Airflow.")
