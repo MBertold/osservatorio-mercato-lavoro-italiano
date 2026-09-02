@@ -43,7 +43,7 @@ def load_regions_geojson() -> dict | None:
 
 
 st.title("Osservatorio Mercato del Lavoro Italiano")
-st.caption("Fonte: ISTAT (API SDMX) — pipeline Airflow su Postgres, layer gold")
+st.caption("Fonte: Eurostat (API SDMX, dati regionali NUTS2) — pipeline Airflow su Postgres, layer gold")
 
 try:
     df = load_fact()

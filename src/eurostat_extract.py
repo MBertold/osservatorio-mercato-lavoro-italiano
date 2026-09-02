@@ -1,8 +1,7 @@
-"""Estrazione degli indicatori sul mercato del lavoro da Eurostat, canale
-alternativo a ISTAT (`src/extract.py`). Scrive negli stessi file
-`data/raw/<indicatore>.csv`, con uno schema di colonne pensato per essere
-letto dalla stessa `src/transform.py` senza modifiche (oltre ad avere
-aggiunto "geo"/"sex"/"age" alle liste di colonne candidate).
+"""Estrazione degli indicatori sul mercato del lavoro da Eurostat.
+Scrive in `data/raw/<indicatore>.csv`, con uno schema di colonne
+(geo/Territorio/sex/age/TIME_PERIOD/OBS_VALUE) letto direttamente da
+`src/transform.py`.
 
 `tasso_inattivita` non è pubblicato da Eurostat come tasso a sé: viene
 derivato da `tasso_attivita` con l'identità 100 - tasso_attivita.
