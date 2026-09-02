@@ -18,11 +18,11 @@ from src.config import DATAFLOWS, RAW_DATA_DIR, warehouse_connection_string
 
 logger = logging.getLogger(__name__)
 
-TERRITORIO_CANDIDATES = ["ITTER107", "REF_AREA", "TERRITORIO"]
+TERRITORIO_CANDIDATES = ["ITTER107", "REF_AREA", "TERRITORIO", "geo"]
 TERRITORIO_LABEL_CANDIDATES = ["Territorio", "Territory", "REF_AREA_LABEL"]
 TIME_CANDIDATES = ["TIME_PERIOD", "Time", "TIME"]
-SESSO_CANDIDATES = ["SEXISTAT1", "SESSO", "Sex"]
-ETA_CANDIDATES = ["ETA1", "CLASSE_DI_ETA", "Age class", "ETA"]
+SESSO_CANDIDATES = ["SEXISTAT1", "SESSO", "Sex", "sex"]
+ETA_CANDIDATES = ["ETA1", "CLASSE_DI_ETA", "Age class", "ETA", "age"]
 VALUE_CANDIDATES = ["OBS_VALUE", "Value", "Observation Value"]
 
 # Mappatura regione -> macro-area, usata in dashboard per il confronto Nord/Centro/Sud.

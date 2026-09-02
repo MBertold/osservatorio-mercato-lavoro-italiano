@@ -1,8 +1,8 @@
 # Osservatorio Mercato del Lavoro Italiano
 
-Progetto end-to-end su dati aperti ISTAT (API SDMX) che copre in un'unica pipeline coerente
-tre profili: **data engineering** (estrazione, orchestrazione, storage), **data analysis**
-(dashboard) e **data science** (forecasting, clustering).
+Progetto end-to-end su dati aperti sul mercato del lavoro italiano che copre in un'unica
+pipeline coerente tre profili: **data engineering** (estrazione, orchestrazione, storage),
+**data analysis** (dashboard) e **data science** (forecasting, clustering).
 
 ```
 Airflow DAG (extract → bronze → silver/gold → quality check)
@@ -11,7 +11,10 @@ Airflow DAG (extract → bronze → silver/gold → quality check)
         └──> Notebook Jupyter (forecasting SARIMAX, clustering K-means)
 ```
 
-Tutto containerizzato con Docker Compose.
+Tutto containerizzato con Docker Compose. **Due canali di estrazione intercambiabili** (stessi
+4 indicatori, stesso schema a valle): dati regionali italiani via **Eurostat** (default,
+verificato end-to-end con dati reali) o direttamente da **ISTAT** via `istatapi` — vedi
+"Due canali di estrazione" più sotto per perché esistono entrambi.
 
 ## Perché questo stack
 
@@ -32,6 +35,25 @@ Tutto containerizzato con Docker Compose.
 - **Cache del catalogo dataflow**: istatapi lo riscaricherebbe per intero ad ogni query;
   qui lo scarichiamo una volta sola e lo teniamo in cache su disco.
 
+## Due canali di estrazione
+
+L'ambiente in cui questo progetto è stato sviluppato non è mai riuscito a raggiungere in modo
+affidabile `esploradati.istat.it`/`sdmx.istat.it` (a seconda del percorso: connessione rifiutata,
+timeout, o un loop di redirect lato server — vedi "Limiti noti"). **Eurostat pubblica gli stessi
+identici indicatori a livello regionale italiano** (NUTS2), con la stessa metodologia armonizzata
+Labour Force Survey, ed è risultato invece pienamente raggiungibile: è il canale verificato con
+dati reali, quindi il default.
+
+| | Eurostat (`src/eurostat_extract.py`, default) | ISTAT (`src/extract.py`, via `istatapi`) |
+|---|---|---|
+| Stato | ✅ verificato end-to-end con dati reali | ⚠️ mai verificato in questo ambiente |
+| Copertura territoriale | 20 regioni (NUTS2, Bolzano+Trento accorpate) | Qualunque livello ISTAT pubblichi |
+| Dataset | `lfst_r_lfu3rt`, `lfst_r_lfe2emprt`, `lfst_r_lfp2actrt` (→ inattività = 100 - attività), `edat_lfse_22` | `DCCV_TAXDISOCCU1`, `DCCV_TAXOCCU`, ... (vedi `src/config.py`) |
+| Rate limit | Nessuno imposto da Eurostat (solo cache) | 5 richieste/minuto ISTAT, rispettato con `src/istat_client.py` |
+
+Si sceglie con la variabile d'ambiente `DATA_SOURCE` (`eurostat` o `istat`, vedi `.env.example`),
+letta dal task `extract_indicatore` del DAG.
+
 ## Struttura del repo
 
 ```
@@ -39,16 +61,19 @@ docker-compose.yml          postgres, airflow-init/webserver/scheduler, dashboar
 airflow/
   Dockerfile                 estende apache/airflow con le dipendenze in più
   dags/mercato_lavoro_dag.py DAG TaskFlow: discover -> extract -> bronze -> silver/gold -> quality
+                              (extract sceglie il canale in base a DATA_SOURCE)
 src/
-  config.py                   connessione DB + configurazione dei dataflow ISTAT
-  istat_client.py              wrapper su istatapi: rate limiting, cache del catalogo
-  discover.py                   script di discovery per trovare gli identificatori
-  extract.py                    estrazione (via istatapi) verso data/raw/<indicatore>.csv
-  transform.py                  bronze -> silver -> gold (schema a stella) su Postgres
+  config.py                   connessione DB + configurazione dei dataflow (entrambi i canali)
+  istat_client.py              wrapper su istatapi: rate limiting, cache del catalogo (canale ISTAT)
+  discover.py                   script di discovery per trovare gli identificatori ISTAT
+  extract.py                    estrazione via istatapi verso data/raw/<indicatore>.csv (canale ISTAT)
+  eurostat_client.py             client SDMX Eurostat con cache su disco
+  eurostat_extract.py            estrazione regionale (NUTS2) verso data/raw/<indicatore>.csv (canale Eurostat)
+  transform.py                  bronze -> silver -> gold (schema a stella) su Postgres, canale-agnostico
   quality_checks.py             controlli di qualità sul layer gold
 dashboard/app.py              dashboard Streamlit (legge gold via Postgres)
 analysis/                     notebook di forecasting e clustering
-tests/                        unit test (pytest) sulla logica di trasformazione
+tests/                        unit test (pytest) sulla logica di trasformazione ed estrazione
 ```
 
 ## Avvio rapido
@@ -78,10 +103,14 @@ le porte di default):
 | Dashboard       | http://localhost:8502   | —                          |
 | Postgres        | localhost:5433           | da `.env`                 |
 
-## Primo utilizzo: trovare gli identificatori mancanti
+## Primo utilizzo: solo se si passa al canale ISTAT
 
-`src/config.py` contiene, per ogni indicatore, l'identificatore da passare a `istatapi`
-(il nome della struttura dati SDMX, es. `DCCV_TAXOCCU`). Stato attuale:
+Col canale di default (`DATA_SOURCE=eurostat`) non serve nulla di questa sezione: i dataset
+Eurostat in `src/config.py` sono già verificati. Questa sezione serve solo se si vuole provare
+`DATA_SOURCE=istat`.
+
+`src/config.py` (dizionario `DATAFLOWS`) contiene, per ogni indicatore, l'identificatore da
+passare a `istatapi` (il nome della struttura dati SDMX, es. `DCCV_TAXOCCU`). Stato attuale:
 
 - `tasso_disoccupazione`, `tasso_occupazione`: identificatori noti (il secondo indicato
   direttamente dall'utente del progetto).
@@ -89,8 +118,7 @@ le porte di default):
 - `neet`: nessun candidato — va cercato da zero.
 
 Un identificatore sbagliato fa fallire (con un errore chiaro) solo il task Airflow di
-quell'indicatore, non l'intero DAG — quindi non è indispensabile confermare tutto prima di
-lanciare la pipeline la prima volta. Per cercare/confermare un identificatore (fuori da
+quell'indicatore, non l'intero DAG. Per cercare/confermare un identificatore (fuori da
 Airflow, per non consumare la quota di 5 richieste/minuto — serve una rete che riesca a
 raggiungere `esploradati.istat.it`, vedi limiti noti più sotto):
 
@@ -129,17 +157,22 @@ pip install -r requirements-dev.txt
 pytest tests/
 ```
 
-I test coprono la logica pura di trasformazione (`src/transform.py`) e il rate limiter
-(`src/istat_client.py`), senza dipendere da rete o database.
+I test coprono la logica pura di trasformazione (`src/transform.py`), l'aggregazione regionale
+del canale Eurostat (`src/eurostat_extract.py`) e il rate limiter (`src/istat_client.py`),
+senza dipendere da rete o database.
 
 ## Limiti noti / prossimi passi
 
-- `tasso_inattivita` è un identificatore candidato non confermato, `neet` è ancora da trovare:
-  vedi sopra.
-- L'ambiente in cui questo progetto è stato sviluppato non ha mai raggiunto
-  `esploradati.istat.it`/`sdmx.istat.it` in modo affidabile (a seconda del percorso: connessione
-  rifiutata, timeout, o un loop di redirect lato server) — il primo run reale del DAG va quindi
-  verificato sulla propria macchina/rete, idealmente controllando prima con un browser vero che
+- Canale Eurostat (default): l'accorpamento Bolzano+Trento in "Trentino-Alto Adige" usa una
+  media semplice tra le due province — andrebbe pesata per popolazione per un uso reale
+  (qui è un'approssimazione accettabile per un progetto di portfolio).
+- Canale ISTAT (opzionale, `DATA_SOURCE=istat`): `tasso_inattivita` è un identificatore
+  candidato non confermato, `neet` è ancora da trovare (vedi sopra). L'ambiente in cui questo
+  progetto è stato sviluppato non ha mai raggiunto `esploradati.istat.it`/`sdmx.istat.it` in
+  modo affidabile (a seconda del percorso: connessione rifiutata, timeout, o un loop di
+  redirect lato server) — va quindi verificato sulla propria macchina/rete, idealmente
+  controllando prima con un browser vero che
   `https://esploradati.istat.it/SDMXWS/rest/dataflow/IT1` risponda.
 - Stretch goal possibili: CeleryExecutor per Airflow, dbt per la trasformazione silver→gold,
-  deploy della dashboard su un servizio cloud, alerting su fallimento DAG.
+  deploy della dashboard su un servizio cloud, alerting su fallimento DAG, dati a livello
+  provinciale (NUTS3) invece che regionale per il canale Eurostat.

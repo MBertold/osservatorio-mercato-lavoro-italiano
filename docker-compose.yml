@@ -17,6 +17,7 @@ x-airflow-common: &airflow-common
     POSTGRES_USER: ${POSTGRES_USER}
     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ISTAT_RAW_DIR: /opt/airflow/project/data/raw
+    DATA_SOURCE: ${DATA_SOURCE:-eurostat}  # "eurostat" (verificato) o "istat" (via istatapi)
   volumes:
     - .:/opt/airflow/project
     - airflow_logs:/opt/airflow/logs
