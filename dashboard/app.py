@@ -64,9 +64,17 @@ indicatori_disponibili = sorted(df["indicatore"].unique())
 with st.sidebar:
     st.header("Filtri")
     indicatore = st.selectbox("Indicatore", indicatori_disponibili)
-    sessi = sorted(df["sesso"].unique())
+
+    # Sesso e classe d'età dipendono dall'indicatore selezionato (ogni
+    # indicatore Eurostat ha una propria fascia d'età per definizione): le
+    # opzioni vanno ricalcolate sul sottoinsieme già filtrato per indicatore,
+    # altrimenti un valore residuo (es. "Y15-74" lasciato da un altro
+    # indicatore che invece usa "Y20-64") produce un filtro senza risultati.
+    df_indicatore = df[df["indicatore"] == indicatore]
+
+    sessi = sorted(df_indicatore["sesso"].unique())
     sesso = st.selectbox("Sesso", sessi, index=sessi.index("totale") if "totale" in sessi else 0)
-    classi_eta = sorted(df["classe_eta"].unique())
+    classi_eta = sorted(df_indicatore["classe_eta"].unique())
     classe_eta = st.selectbox("Classe di età", classi_eta, index=classi_eta.index("totale") if "totale" in classi_eta else 0)
     regioni = sorted(df["territorio"].dropna().unique())
     regioni_selezionate = st.multiselect("Regioni (vuoto = tutte)", regioni)
