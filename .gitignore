@@ -1,0 +1,28 @@
+# Env / secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Data cache (regenerabile via pipeline)
+data/raw/*
+!data/raw/.gitkeep
+
+# Airflow runtime
+airflow/logs/
+airflow/plugins/
+airflow/airflow.cfg
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Postgres volume (gestito da Docker, non da versionare)
+pgdata/
+
+# OS / editor
+.DS_Store
+.vscode/

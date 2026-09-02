@@ -1,0 +1,7 @@
+# NB: non pinnare qui pandas o SQLAlchemy: apache-airflow 2.10.x le porta già
+# come dipendenze transitive (SQLAlchemy <2.0, pandas <2.2) e forzarne una
+# versione diversa rompe l'ORM interno di Airflow. Il nostro codice in src/
+# usa solo API compatibili con la versione già presente nell'immagine.
+requests==2.32.3
+psycopg2-binary==2.9.10
+filelock==3.16.1
